@@ -21,6 +21,7 @@ random.seed(0)
 np.random.seed(0)
 
 from utils import train_utils, googlenet_load
+from utils.slim_nets_load import load_net
 
 @ops.RegisterGradient("Hungarian")
 def _hungarian_grad(op, *args):
@@ -56,7 +57,7 @@ def build_overfeat_inner(H, lstm_input):
     outputs = []
     initializer = tf.random_uniform_initializer(-0.1, 0.1)
     with tf.variable_scope('Overfeat', initializer=initializer):
-        w = tf.get_variable('ip', shape=[1024, H['lstm_size']])
+        w = tf.get_variable('ip', shape=[H['cnn_feature'], H['lstm_size']])
         outputs.append(tf.matmul(lstm_input, w))
     return outputs
 
@@ -111,7 +112,7 @@ def rezoom(H, pred_boxes, early_feat, early_feat_channels, w_offsets, h_offsets)
                        H['rnn_len'],
                        len(w_offsets) * len(h_offsets) * early_feat_channels])
 
-def build_forward(H, x, googlenet, phase, reuse):
+def build_forward(H, x, phase, reuse):
     '''
     Construct the forward model
     '''
@@ -120,9 +121,13 @@ def build_forward(H, x, googlenet, phase, reuse):
     outer_size = grid_size * H['batch_size']
     input_mean = 117.
     x -= input_mean
-    cnn, early_feat, _ = googlenet_load.model(x, googlenet, H)
+    #cnn, early_feat, _ = googlenet_load.model(x, googlenet, H)
+    print 'before build cnn'
+    cnn, early_feat, _ = load_net(H, x, reuse)
     early_feat_channels = H['early_feat_channels']
     early_feat = early_feat[:, :, :, :early_feat_channels]
+
+    print 'after build cnn'
 
     if H['deconv']:
         size = 3
@@ -149,11 +154,11 @@ def build_forward(H, x, googlenet, phase, reuse):
         cnn = tf.concat(3, [cnn1, cnn2])
 
     cnn = tf.reshape(cnn,
-                     [H['batch_size'] * H['grid_width'] * H['grid_height'], 1024])
+                     [H['batch_size'] * H['grid_width'] * H['grid_height'], H['cnn_feature']])
     initializer = tf.random_uniform_initializer(-0.1, 0.1)
     with tf.variable_scope('decoder', reuse=reuse, initializer=initializer):
         scale_down = 0.01
-        lstm_input = tf.reshape(cnn * scale_down, (H['batch_size'] * grid_size, 1024))
+        lstm_input = tf.reshape(cnn * scale_down, (H['batch_size'] * grid_size, H['cnn_feature']))
         if H['use_lstm']:
             lstm_outputs = build_lstm_inner(H, lstm_input)
         else:
@@ -223,7 +228,7 @@ def build_forward(H, x, googlenet, phase, reuse):
 
     return pred_boxes, pred_logits, pred_confidences
 
-def build_forward_backward(H, x, googlenet, phase, boxes, flags):
+def build_forward_backward(H, x, phase, boxes, flags):
     '''
     Call build_forward() and then setup the loss functions
     '''
@@ -233,9 +238,9 @@ def build_forward_backward(H, x, googlenet, phase, boxes, flags):
     reuse = {'train': None, 'test': True}[phase]
     if H['use_rezoom']:
         (pred_boxes, pred_logits,
-         pred_confidences, pred_confs_deltas, pred_boxes_deltas) = build_forward(H, x, googlenet, phase, reuse)
+         pred_confidences, pred_confs_deltas, pred_boxes_deltas) = build_forward(H, x, phase, reuse)
     else:
-        pred_boxes, pred_logits, pred_confidences = build_forward(H, x, googlenet, phase, reuse)
+        pred_boxes, pred_logits, pred_confidences = build_forward(H, x, phase, reuse)
     with tf.variable_scope('decoder', reuse={'train': None, 'test': True}[phase]):
         outer_boxes = tf.reshape(boxes, [outer_size, H['rnn_len'], 4])
         outer_flags = tf.cast(tf.reshape(flags, [outer_size, H['rnn_len']]), 'int32')
@@ -307,11 +312,11 @@ def build(H, q):
 
     os.environ['CUDA_VISIBLE_DEVICES'] = str(solver.get('gpu', ''))
 
-    #gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
+    #=gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
     gpu_options = tf.GPUOptions()
     config = tf.ConfigProto(gpu_options=gpu_options)
 
-    encoder_net = googlenet_load.init(H, config)
+    #encoder_net = googlenet_load.init(H, config)
 
     learning_rate = tf.placeholder(tf.float32)
     if solver['opt'] == 'RMS':
@@ -335,7 +340,7 @@ def build(H, q):
 
         (pred_boxes, pred_confidences,
          loss[phase], confidences_loss[phase],
-         boxes_loss[phase]) = build_forward_backward(H, x, encoder_net, phase, boxes, flags)
+         boxes_loss[phase]) = build_forward_backward(H, x, phase, boxes, flags)
         pred_confidences_r = tf.reshape(pred_confidences, [H['batch_size'], grid_size, H['rnn_len'], arch['num_classes']])
         pred_boxes_r = tf.reshape(pred_boxes, [H['batch_size'], grid_size, H['rnn_len'], 4])
 
@@ -403,7 +408,7 @@ def build(H, q):
     summary_op = tf.merge_all_summaries()
 
     return (config, loss, accuracy, summary_op, train_op,
-            smooth_op, global_step, learning_rate, encoder_net)
+            smooth_op, global_step, learning_rate)
 
 
 def train(H, test_images):
@@ -442,7 +447,7 @@ def train(H, test_images):
             sess.run(enqueue_op[phase], feed_dict=make_feed(d))
 
     (config, loss, accuracy, summary_op, train_op,
-     smooth_op, global_step, learning_rate, encoder_net) = build(H, q)
+     smooth_op, global_step, learning_rate) = build(H, q)
 
     saver = tf.train.Saver(max_to_keep=None)
     writer = tf.train.SummaryWriter(
@@ -462,9 +467,17 @@ def train(H, test_images):
             t.daemon = True
             t.start()
 
+        print 'before init'
         tf.set_random_seed(H['solver']['rnd_seed'])
         sess.run(tf.initialize_all_variables())
         writer.add_graph(sess.graph)
+
+        print 'before restore'
+        encoder_weights = H['solver']['encoder_weights']
+        saver.restore(sess, encoder_weights)
+
+        print 'after restore'
+
         weights_str = H['solver']['weights']
         if len(weights_str) > 0:
             print('Restoring from: %s' % weights_str)
