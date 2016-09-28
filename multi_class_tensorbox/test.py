@@ -1,11 +1,22 @@
-input = '/Users/lanchao/Downloads/car_detection.txt'
-outfile = '/Users/lanchao/Downloads/car_detection_out.txt'
+import tensorflow as tf
+slim = tf.contrib.slim
+from PIL import Image
+from inception_resnet_v2 import *
+import numpy as np
 
-with open(input) as file:
-    with open(outfile, 'w') as out:
-        for line in file:
-            num = line.split(' ')
-            re = 1 - float(num[0])
-            newline = '{:.6f} {:s} {:s} {:s}'.format(re, num[1], num[2], num[3])
-            out.write(newline)
-
+checkpoint_file = 'inception_resnet_v2_2016_08_30.ckpt'
+sample_images = ['dog.jpg', 'panda.jpg']
+#Load the model
+sess = tf.Session()
+arg_scope = inception_resnet_v2_arg_scope()
+with slim.arg_scope(arg_scope):
+  logits, end_points = inception_resnet_v2(input_tensor, is_training=False)
+saver = tf.train.Saver()
+saver.restore(sess, checkpoint_file)
+for image in sample_images:
+  im = Image.open(image).resize((299,299))
+  im = np.array(im)
+  im = im.reshape(-1,299,299,3)
+  predict_values, logit_values = sess.run([end_points['Predictions'], logits], feed_dict={input_tensor: im})
+  print (np.max(predict_values), np.max(logit_values))
+  print (np.argmax(predict_values), np.argmax(logit_values))

@@ -20,8 +20,9 @@ from tensorflow.python.ops import array_ops
 random.seed(0)
 np.random.seed(0)
 
-from utils import train_utils, googlenet_load
+from utils import train_utils_non_googlenet, googlenet_load
 from utils.slim_nets_load import load_net
+from utils.conv_output_cal import get_inception_renet_v2_output_size
 
 @ops.RegisterGradient("Hungarian")
 def _hungarian_grad(op, *args):
@@ -37,7 +38,10 @@ def build_lstm_inner(H, lstm_input):
     else:
         lstm = lstm_cell
 
-    batch_size = H['batch_size'] * H['grid_height'] * H['grid_width']
+    grid_height = get_inception_renet_v2_output_size(H['image_height'])
+    grid_width = get_inception_renet_v2_output_size(H['image_width'])
+
+    batch_size = H['batch_size'] * grid_height * grid_width
     state = tf.zeros([batch_size, lstm.state_size])
 
     outputs = []
@@ -91,14 +95,14 @@ def rezoom(H, pred_boxes, early_feat, early_feat_channels, w_offsets, h_offsets)
     indices = []
     for w_offset in w_offsets:
         for h_offset in h_offsets:
-            indices.append(train_utils.bilinear_select(H,
+            indices.append(train_utils_non_googlenet.bilinear_select(H,
                                                        pred_boxes,
                                                        early_feat,
                                                        early_feat_channels,
                                                        w_offset, h_offset))
 
     interp_indices = tf.concat(0, indices)
-    rezoom_features = train_utils.interp(early_feat,
+    rezoom_features = train_utils_non_googlenet.interp(early_feat,
                                          interp_indices,
                                          early_feat_channels)
     rezoom_features_r = tf.reshape(rezoom_features,
@@ -117,7 +121,10 @@ def build_forward(H, x, phase, reuse):
     Construct the forward model
     '''
 
-    grid_size = H['grid_width'] * H['grid_height']
+    grid_height = get_inception_renet_v2_output_size(H['image_height'])
+    grid_width = get_inception_renet_v2_output_size(H['image_width'])
+
+    grid_size = grid_width * grid_height
     outer_size = grid_size * H['batch_size']
     input_mean = 117.
     x -= input_mean
@@ -154,7 +161,7 @@ def build_forward(H, x, phase, reuse):
         cnn = tf.concat(3, [cnn1, cnn2])
 
     cnn = tf.reshape(cnn,
-                     [H['batch_size'] * H['grid_width'] * H['grid_height'], H['cnn_feature']])
+                     [H['batch_size'] * grid_width * grid_height, H['cnn_feature']])
     initializer = tf.random_uniform_initializer(-0.1, 0.1)
     with tf.variable_scope('decoder', reuse=reuse, initializer=initializer):
         scale_down = 0.01
@@ -233,7 +240,13 @@ def build_forward_backward(H, x, phase, boxes, flags):
     Call build_forward() and then setup the loss functions
     '''
 
-    grid_size = H['grid_width'] * H['grid_height']
+    grid_height = get_inception_renet_v2_output_size(H['image_height'])
+    grid_width = get_inception_renet_v2_output_size(H['image_width'])
+
+    print 'grid_height: %d'%grid_height
+    print 'grid_width: %d'%grid_width
+
+    grid_size = grid_height * grid_width
     outer_size = grid_size * H['batch_size']
     reuse = {'train': None, 'test': True}[phase]
     if H['use_rezoom']:
@@ -267,8 +280,8 @@ def build_forward_backward(H, x, phase, boxes, flags):
                 square_error = tf.reduce_sum(tf.square(error), 2)
                 inside = tf.reshape(tf.to_int64(tf.logical_and(tf.less(square_error, 0.2**2), tf.greater(classes, 0))), [-1])
             elif H['rezoom_change_loss'] == 'iou':
-                iou = train_utils.iou(train_utils.to_x1y1x2y2(tf.reshape(pred_boxes, [-1, 4])),
-                                      train_utils.to_x1y1x2y2(tf.reshape(perm_truth, [-1, 4])))
+                iou = train_utils_non_googlenet.iou(train_utils_non_googlenet.to_x1y1x2y2(tf.reshape(pred_boxes, [-1, 4])),
+                                                    train_utils_non_googlenet.to_x1y1x2y2(tf.reshape(perm_truth, [-1, 4])))
                 inside = tf.reshape(tf.to_int64(tf.greater(iou, 0.5)), [-1])
             else:
                 assert H['rezoom_change_loss'] == False
@@ -335,8 +348,10 @@ def build(H, q):
         x, confidences, boxes = q[phase].dequeue_many(arch['batch_size'])
         flags = tf.argmax(confidences, 3)
 
+        grid_height = get_inception_renet_v2_output_size(H['image_height'])
+        grid_width = get_inception_renet_v2_output_size(H['image_width'])
 
-        grid_size = H['grid_width'] * H['grid_height']
+        grid_size = grid_height * grid_width
 
         (pred_boxes, pred_confidences,
          loss[phase], confidences_loss[phase],
@@ -387,7 +402,7 @@ def build(H, q):
 
             def log_image(np_img, np_confidences, np_boxes, np_global_step, pred_or_true):
 
-                merged = train_utils.add_rectangles(H, np_img, np_confidences, np_boxes,
+                merged = train_utils_non_googlenet.add_rectangles(H, np_img, np_confidences, np_boxes,
                                                     use_stitching=True,
                                                     rnn_len=H['rnn_len'])[0]
 
@@ -427,9 +442,13 @@ def train(H, test_images):
     boxes_in = tf.placeholder(tf.float32)
     q = {}
     enqueue_op = {}
+
+    grid_height = get_inception_renet_v2_output_size(H['image_height'])
+    grid_width = get_inception_renet_v2_output_size(H['image_width'])
+
     for phase in ['train', 'test']:
         dtypes = [tf.float32, tf.float32, tf.float32]
-        grid_size = H['grid_width'] * H['grid_height']
+        grid_size = grid_width * grid_height
         shapes = (
             [H['image_height'], H['image_width'], 3],
             [grid_size, H['rnn_len'], H['num_classes']],
@@ -455,11 +474,14 @@ def train(H, test_images):
         flush_secs=10
     )
 
+    tvars_cnn = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'InceptionResnetV2')
+    cnn_restorer = tf.train.Saver(tvars_cnn)
+
     with tf.Session(config=config) as sess:
         tf.train.start_queue_runners(sess=sess)
         for phase in ['train', 'test']:
             # enqueue once manually to avoid thread start delay
-            gen = train_utils.load_data_gen(H, phase, jitter=H['solver']['use_jitter'])
+            gen = train_utils_non_googlenet.load_data_gen(H, phase, jitter=H['solver']['use_jitter'], is_google_net=False)
             d = gen.next()
             sess.run(enqueue_op[phase], feed_dict=make_feed(d))
             t = tf.train.threading.Thread(target=thread_loop,
@@ -474,7 +496,7 @@ def train(H, test_images):
 
         print 'before restore'
         encoder_weights = H['solver']['encoder_weights']
-        saver.restore(sess, encoder_weights)
+        cnn_restorer.restore(sess, encoder_weights)
 
         print 'after restore'
 

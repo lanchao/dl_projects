@@ -192,16 +192,16 @@ def inception_resnet_v2(inputs, num_classes=1001, is_training=True,
         net = slim.repeat(net, 20, block17, scale=0.10)
 
         # Auxillary tower
-        with tf.variable_scope('AuxLogits'):
-          aux = slim.avg_pool2d(net, 5, stride=3, padding='VALID',
-                                scope='Conv2d_1a_3x3')
-          aux = slim.conv2d(aux, 128, 1, scope='Conv2d_1b_1x1')
-          aux = slim.conv2d(aux, 768, aux.get_shape()[1:3],
-                            padding='VALID', scope='Conv2d_2a_5x5')
-          aux = slim.flatten(aux)
-          aux = slim.fully_connected(aux, num_classes, activation_fn=None,
-                                     scope='Logits')
-          end_points['AuxLogits'] = aux
+#        with tf.variable_scope('AuxLogits'):
+#          aux = slim.avg_pool2d(net, 5, stride=3, padding='VALID',
+#                                scope='Conv2d_1a_3x3')
+#          aux = slim.conv2d(aux, 128, 1, scope='Conv2d_1b_1x1')
+#          aux = slim.conv2d(aux, 768, aux.get_shape()[1:3],
+#                            padding='VALID', scope='Conv2d_2a_5x5')
+#          aux = slim.flatten(aux)
+#          aux = slim.fully_connected(aux, num_classes, activation_fn=None,
+#                                     scope='Logits')
+#          end_points['AuxLogits'] = aux
 
         with tf.variable_scope('Mixed_7a'):
           with tf.variable_scope('Branch_0'):
@@ -232,22 +232,22 @@ def inception_resnet_v2(inputs, num_classes=1001, is_training=True,
         net = slim.conv2d(net, 1536, 1, scope='Conv2d_7b_1x1')
         end_points['Conv2d_7b_1x1'] = net
 
-        with tf.variable_scope('Logits'):
-          end_points['PrePool'] = net
-          net = slim.avg_pool2d(net, net.get_shape()[1:3], padding='VALID',
-                                scope='AvgPool_1a_8x8')
-          net = slim.flatten(net)
+#        with tf.variable_scope('Logits'):
+#          end_points['PrePool'] = net
+#          net = slim.avg_pool2d(net, net.get_shape()[1:3], padding='VALID',
+#                                scope='AvgPool_1a_8x8')
+#          net = slim.flatten(net)
+#
+#          net = slim.dropout(net, dropout_keep_prob, is_training=is_training,
+#                             scope='Dropout')
+#
+#          end_points['PreLogitsFlatten'] = net
+#          logits = slim.fully_connected(net, num_classes, activation_fn=None,
+#                                        scope='Logits')
+#          end_points['Logits'] = logits
+#          end_points['Predictions'] = tf.nn.softmax(logits, name='Predictions')
 
-          net = slim.dropout(net, dropout_keep_prob, is_training=is_training,
-                             scope='Dropout')
-
-          end_points['PreLogitsFlatten'] = net
-          logits = slim.fully_connected(net, num_classes, activation_fn=None,
-                                        scope='Logits')
-          end_points['Logits'] = logits
-          end_points['Predictions'] = tf.nn.softmax(logits, name='Predictions')
-
-    return logits, end_points
+    return  end_points
 inception_resnet_v2.default_image_size = 299
 
 

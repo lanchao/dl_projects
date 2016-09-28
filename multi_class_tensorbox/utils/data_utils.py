@@ -7,11 +7,21 @@ import numpy as np
 import copy
 import annolist.AnnotationLib as al
 
-def annotation_to_h5(H, a, cell_width, cell_height, max_len):
-    region_size = H['region_size']
-    assert H['region_size'] == H['image_height'] / H['grid_height']
-    assert H['region_size'] == H['image_width'] / H['grid_width']
-    cell_regions = get_cell_grid(cell_width, cell_height, region_size)
+from conv_output_cal import get_inception_renet_v2_output_size
+
+def annotation_to_h5(H, a, cell_width, cell_height, max_len, is_google_net):
+    if is_google_net:
+        region_size = H['region_size']
+        assert H['region_size'] == H['image_height'] / H['grid_height']
+        assert H['region_size'] == H['image_width'] / H['grid_width']
+        cell_regions = get_cell_grid(cell_width, cell_height, region_size)
+    else:
+        grid_height = get_inception_renet_v2_output_size(H['image_height'])
+        grid_width = get_inception_renet_v2_output_size(H['image_width'])
+        region_height = H['image_height'] / grid_height
+        region_width = H['image_width'] / grid_width
+        region_size = region_width if region_width > region_height else region_height
+        cell_regions = get_cell_grid_not_equal(cell_width, cell_height, region_width=region_width, region_height=region_height)
 
     cells_per_image = len(cell_regions)
 
@@ -61,6 +71,24 @@ def get_cell_grid(cell_width, cell_height, region_size):
 
             r = al.AnnoRect(ox - 0.5 * region_size, oy - 0.5 * region_size,
                             ox + 0.5 * region_size, oy + 0.5 * region_size)
+            r.track_id = cidx
+
+            cell_regions.append(r)
+
+
+    return cell_regions
+
+def get_cell_grid_not_equal(cell_width, cell_height, region_width, region_height):
+
+    cell_regions = []
+    for iy in xrange(cell_height):
+        for ix in xrange(cell_width):
+            cidx = iy * cell_width + ix
+            ox = (ix + 0.5) * region_width
+            oy = (iy + 0.5) * region_height
+
+            r = al.AnnoRect(ox - 0.5 * region_width, oy - 0.5 * region_height,
+                            ox + 0.5 * region_width, oy + 0.5 * region_height)
             r.track_id = cidx
 
             cell_regions.append(r)

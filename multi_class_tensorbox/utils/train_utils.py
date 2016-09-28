@@ -23,7 +23,7 @@ def rescale_boxes(current_shape, anno, target_height, target_width):
         r.y2 *= y_scale
     return anno
 
-def load_idl_tf(idlfile, H, jitter, shuffle):
+def load_idl_tf(idlfile, H, jitter, shuffle, is_googlenet):
     """Take the idlfile and net configuration and create a generator
     that outputs a jittered version of a random image from the annolist
     that is mean corrected."""
@@ -66,7 +66,8 @@ def load_idl_tf(idlfile, H, jitter, shuffle):
                                             anno,
                                             H["grid_width"],
                                             H["grid_height"],
-                                            H["rnn_len"])
+                                            H["rnn_len"], is_google_net=is_googlenet)
+
 
             yield {"image": I, "boxes": boxes, "flags": flags}
 
@@ -75,11 +76,11 @@ def make_sparse(n, d):
     v[n] = 1.
     return v
 
-def load_data_gen(H, phase, jitter, shuffle_annos=True):
+def load_data_gen(H, phase, jitter, shuffle_annos=True, is_google_net=True):
     # type: (object, object, object, object) -> object
     grid_size = H['grid_width'] * H['grid_height']
 
-    data = load_idl_tf(H["data"]['%s_idl' % phase], H, jitter={'train': jitter, 'test': False, 'train_step2': jitter, 'test_step2': False}[phase], shuffle=shuffle_annos)
+    data = load_idl_tf(H["data"]['%s_idl' % phase], H, jitter={'train': jitter, 'test': False, 'train_step2': jitter, 'test_step2': False}[phase], shuffle=shuffle_annos, is_googlenet=is_google_net)
 
     for d in data:
         output = {}
